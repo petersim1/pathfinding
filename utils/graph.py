@@ -3,7 +3,8 @@ from functools import wraps
 from time import time
 from typing import List, Tuple
 
-from .helpers import generate_fixed_grid, generate_random_grid
+from .helpers import (generate_fixed_grid, generate_grid, generate_maze,
+                      generate_random_grid)
 
 
 class Graph:
@@ -76,10 +77,18 @@ class Graph:
         return g
 
     def generate_grid(self, grid_type: str = "random", **kwargs) -> None:
-        if (grid_type == "random"):
-            s, t, g = generate_random_grid(self.__rows, self.__cols, **kwargs)
-        else:
-            s, t, g = generate_fixed_grid(self.__rows, self.__cols, **kwargs)
+        match grid_type:
+            case "random":
+                s, t, g = generate_random_grid(self.__rows, self.__cols, **kwargs)
+            case "random-1":
+                s, t, g = generate_grid(self.__rows, self.__cols, **kwargs)
+            case "maze":
+                s, t, g = generate_maze(self.__rows, self.__cols, **kwargs)
+            case "fixed":
+                s, t, g = generate_fixed_grid(self.__rows, self.__cols, **kwargs)
+            case _:
+                s, t, g = generate_grid(self.__rows, self.__cols, **kwargs)
+
         self.__p_start = s
         self.__p_end = t
         self.__grid = g

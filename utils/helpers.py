@@ -1,24 +1,23 @@
 import random
 from queue import LifoQueue
 
-from .search import get_neighbors
+from .search import get_neighbors, manhattan_distance
 from .types import Grid_t, Position_t
+
+"""
+4 primary methods of maze / grid generation
+
+- Maze
+- Grid -> viable path created (random walk with stack), blocks outside that path
+randomly filled
+- Grid -> randomly fill blocks, ensure viable path in each iteration
+- Fixed -> Some fixed grid variants to explore.
+
+In all cases, 1 denotes valid unit, 0 denotes blocked unit.
+"""
 
 
 def is_path_valid(start: Position_t, target: Position_t, matrix: Grid_t):
-    """
-    DFS for an adjacency matrix.
-
-    Args:
-    - start (int, int)
-    - end (int, int)
-    - matrix: adjacency matrix
-
-    Returns:
-    - valid_path boolean
-    - stack int[]: current stack, can be complete for path, or incomplete.
-    """
-
     max_size = len(matrix) * len(matrix[0])
 
     visited = set([start])
@@ -46,8 +45,115 @@ def is_path_valid(start: Position_t, target: Position_t, matrix: Grid_t):
     return is_valid_path
 
 
+def generate_maze(rows, cols):
+    """There's a bug in here, sometimes generates in invalid maze"""
+    # Initialize the grid with walls (1) and spaces (0)
+    maze = [[0 for _ in range(cols)] for _ in range(rows)]
+
+    # Define the directions for moving in the maze (right, down, left, up)
+    directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
+
+    def is_valid_move(r, c):
+        # Check if the move is within the maze boundaries
+        return 0 <= r < rows and 0 <= c < cols
+
+    def carve_passages_from(cr, cc):
+        # Randomly shuffle the directions to create a more random maze
+        random.shuffle(directions)
+
+        for dr, dc in directions:
+            nr, nc = cr + dr, cc + dc
+            nr2, nc2 = cr + 2*dr, cc + 2*dc
+
+            if is_valid_move(nr2, nc2) and maze[nr2][nc2] == 0:
+                # Carve through the blockages to create passages
+                maze[nr][nc] = 1
+                maze[nr2][nc2] = 1
+                carve_passages_from(nr2, nc2)
+
+    # Ensure the start and end positions are within bounds
+    start_r, start_c = 0, 1 if cols > 1 else 0
+    end_r, end_c = rows - 1, cols - 2 if cols > 1 else cols - 1
+
+    # Start carving from a central location
+    start_cr, start_cc = 1 if rows > 1 else 0, 1 if cols > 1 else 0
+    maze[start_cr][start_cc] = 1
+    carve_passages_from(start_cr, start_cc)
+
+    # Ensure the start (top-left) and end (bottom-right) are open
+    maze[start_r][start_c] = 1
+    maze[end_r][end_c] = 1
+
+    return (start_r, start_c), (end_r, end_c), maze
+
+
+def generate_grid(rows: int, cols: int, percent_blocked: float = 0.3):
+    def generate_viable_path(rows, cols):
+        start = (random.choice(range(rows)), random.choice(range(cols)))
+
+        # Worst case scenario, we start in the center, this is the
+        # maximum distance we can be.
+        min_allowable_distance = int(rows / 2) + int(cols / 2)
+        max_size = rows * cols
+
+        cur_distance = 0
+
+        stack = LifoQueue(maxsize=max_size)
+        stack.put(start)
+        visited = set([start])
+
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+        while True:
+            cur_node = stack.queue[-1]
+            cur_distance = manhattan_distance(start, cur_node)
+            is_available = False
+            random.shuffle(directions)
+
+            for d in directions:
+                pos = (cur_node[0] + d[0], cur_node[1] + d[1])
+                is_valid = (0 <= pos[0] <= rows - 1) and (0 <= pos[1] <= cols - 1)
+                if is_valid:
+                    if pos not in visited:
+                        stack.put(pos)
+                        visited.add(pos)
+                        cur_distance = manhattan_distance(start, pos)
+                        is_available = True
+                        break
+            if not is_available:
+                # preven backtracking if desired distance is already achieved
+                # (here due to the condition below for possible extensions)
+                if cur_distance >= min_allowable_distance:
+                    break
+                stack.get()
+
+            if cur_distance >= min_allowable_distance:
+                # allow for a chance of extending past min_allowable_distance
+                if random.random() < 0.75:
+                    break
+
+        return stack.queue
+
+    if rows < 2:
+        raise ValueError("N is too small")
+    if cols < 2:
+        raise ValueError("M is too small")
+    percent_blocked = max(0, min(1, percent_blocked))
+
+    grid = [[1 for _ in range(cols)] for _ in range(rows)]
+    path = generate_viable_path(rows, cols)
+
+    for r in range(rows):
+        for c in range(cols):
+            if (r, c) not in path:
+                if random.random() < percent_blocked:
+                    grid[r][c] = 0
+
+    return path[0], path[-1], grid
+
+
 def generate_random_grid(
-    n: int, m: int, percent_blocked: float = 0.3
+    rows: int, cols: int, percent_blocked: float = 0.3
 ) -> tuple[Position_t, Position_t, Grid_t]:
     """
     Create an N x M grid with a starting and ending position.
@@ -67,13 +173,13 @@ def generate_random_grid(
     position, and the grid.
     """
 
-    if n < 2:
+    if rows < 2:
         raise ValueError("N is too small")
-    if m < 2:
+    if cols < 2:
         raise ValueError("M is too small")
     percent_blocked = max(0, min(1, percent_blocked))
 
-    available_positions = [(r, c) for c in range(m) for r in range(n)]
+    available_positions = [(r, c) for c in range(cols) for r in range(rows)]
 
     start = random.choice(available_positions)
     available_positions.remove(start)
@@ -86,10 +192,10 @@ def generate_random_grid(
     )
     available_positions.remove(end)
 
-    grid = [[1 for _ in range(m)] for _ in range(n)]
+    grid = [[1 for _ in range(cols)] for _ in range(rows)]
 
-    for r in range(n):
-        for c in range(m):
+    for r in range(rows):
+        for c in range(cols):
             pos = (r, c)
             if pos == start:
                 continue

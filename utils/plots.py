@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 
-from .types import grid_t, position_t
+from .types import Grid_t, Position_t
 
 
-def plot_grid(start: position_t, target: position_t, grid: grid_t, axes: None = None):
+def plot_grid(start: Position_t, target: Position_t, grid: Grid_t, axes: None = None):
     if axes is None:
         _, axes = plt.subplots(1, 1, figsize=(6, 3))
         axes = [axes]
