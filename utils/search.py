@@ -164,6 +164,7 @@ def dfs_heuristic(start: Position_t, target: Position_t, matrix: Grid_t):
     visited = set([start])
     stack = LifoQueue(maxsize=max_size)
     stack.put(start)
+    values = {start: manhattan_distance(start, target)}
     is_valid_path = False
 
     while stack.qsize():
@@ -174,12 +175,15 @@ def dfs_heuristic(start: Position_t, target: Position_t, matrix: Grid_t):
             break
 
         is_available = False
-        neighbors = get_neighbors(cur_node, matrix)
-        neighbors = sorted(
-            map(lambda x: (manhattan_distance(x, target), x), neighbors),
-            key=lambda x : x[0]
-        )
-        for _, neighbor in neighbors:
+
+        to_search = []
+        for neighbor in get_neighbors(cur_node, matrix):
+            if neighbor not in values:
+                values[neighbor] = manhattan_distance(neighbor, target)
+            value = values[neighbor]
+            to_search.append((value, neighbor))
+        to_search = sorted(to_search, key=lambda x : x[0])
+        for _, neighbor in to_search:
             if neighbor not in visited:
                 visited.add(neighbor)
                 stack.put(neighbor)
