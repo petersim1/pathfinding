@@ -1,6 +1,7 @@
+from typing import List
+
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from pandas import DataFrame, Series
 
 from .types import Grid_t, Position_t
 
@@ -49,46 +50,46 @@ def plot_path(ax, path, **kwargs):
         ax.plot([path[i][1], path[i + 1][1]], [path[i][0], path[i + 1][0]], **kwargs)
 
 
-def bar_chart_performance(partition: DataFrame | Series, colors: object, **kwargs):
+def bar_chart_performance(
+        partition: List[object],
+        colormap: object,
+        items: List[str],
+        key: str,
+        **kwargs):
 
     fig, axes = plt.subplots(nrows=1, ncols=3, **kwargs)
-    fig.suptitle("random grids, varying % blockages")
 
-    color_order_keys = []
+    n_groups = len(partition)
+    n_per_group = len(items)
 
     for i, label in enumerate(["time", "iterations", "length"]):
-
-        subbed = partition[label]
-
-        if i == 0:
-            color_order_keys = subbed.columns
-
-        n_cols = len(subbed.columns)
-        n_ind = len(subbed.index)
 
         x_labels = []
         color = []
         y = []
+        err = []
         x = 0
         xs = []
-        for ind in subbed.index:
-            x_labels.append(ind)
-            for col in subbed.columns:
-                y.append(subbed.loc[ind][col])
-                color.append(colors[col])
+
+        for d in partition:
+            x_labels.append(d[key])
+            for k in items:
+                y.append(d[k][label]["avg"])
                 xs.append(x)
+                err.append(d[k][label]["std"])
+                color.append(colormap[k])
                 x += 1
-            x += 1
+            x += 1  # create a gap between groupings
 
-        starting_label = (n_cols - 1) / 2
-        xs_labels = [i * (n_cols + 1) + starting_label for i in range(n_ind)]
+        starting_label_i = (n_per_group - 1) / 2
+        x_labels_i = [i * (n_per_group + 1) + starting_label_i for i in range(n_groups)]
 
-        axes[i].bar(xs, y, color=color)
+        axes[i].bar(xs, y, yerr=err, color=color)
         axes[i].set_ylabel(label)
-        axes[i].set_xticks(xs_labels, x_labels)
+        axes[i].set_xticks(x_labels_i, x_labels)
 
-    color_order_values = [colors[c] for c in color_order_keys]
+    color_order_values = [colormap[c] for c in items]
 
     custom_lines = [Line2D([0], [0], color=color, lw=4) for color in color_order_values]
-    fig.legend(custom_lines, color_order_keys)
+    fig.legend(custom_lines, items)
     return fig
