@@ -304,3 +304,74 @@ def a_star(start: Position_t, target: Position_t, matrix: Grid_t):
         yield ("path", path)
     else:
         yield ("error", None)
+
+
+def jps(start: Position_t, target: Position_t, matrix: Grid_t):
+
+    def can_enter(pos):
+        r, c = pos
+        if 0 <= r < len(matrix):
+            if 0 <= c < len(matrix[0]):
+                if matrix[r][c] == 1:
+                    return True
+        return False
+
+    def jump(node_from, node, scanned=[]):
+        r, c = node
+        dr, dc = r - node_from[0], c - node_from[1]
+
+        if not can_enter(node):
+            return None, scanned
+
+        if node == target:
+            return node, scanned
+
+        if dr != 0:  # vertical move
+            if (can_enter((r, c - 1)) and not can_enter((r - dr, c - 1))) or\
+                  (can_enter((r, c + 1)) and not can_enter((r - dr, c + 1))):
+                return node, scanned
+            vert_0, vert_0_s = jump((r, c + 1), node, scanned)
+            vert_1, vert_1_s = jump((r, c - 1), node, scanned)
+            if (vert_0 is not None) or (vert_1 is not None):
+                return node, list(set(vert_1_s + vert_0_s))
+        if dc != 0:  # horizontal move
+            if (can_enter((r - 1, c)) and not can_enter((r - 1, c - dc))) or\
+                  (can_enter((r + 1, c)) and not can_enter((r + 1, c - dc))):
+                return node, scanned
+
+        return jump(node, (r + dr, c + dc), scanned + [node])
+
+    open_list = PriorityQueue()
+    open_list.put((0, start))
+    parents = {start: None}
+    g_score = {start: 0}
+
+    is_valid_path = False
+
+    while not open_list.empty():
+        _, current = open_list.get()
+        yield ("search", current)
+
+        if current == target:
+            is_valid_path = True
+            break
+
+        tentative_g_score = g_score[current] + 1
+
+        for neighbor in get_neighbors(current, matrix):
+            jp, scanned = jump(current, neighbor)
+            for s in scanned:
+                yield ("scan", s)
+            if jp is None:
+                continue
+            if jp not in g_score or tentative_g_score < g_score[jp]:
+                parents[jp] = current
+                g_score[jp] = tentative_g_score
+                f_score = tentative_g_score + manhattan_distance(jp, target)
+                open_list.put((f_score, jp))
+
+    if is_valid_path:
+        path = recreate_path(method="bfs", target=target, parents=parents)
+        yield ("path", path)
+    else:
+        yield ("error", None)
