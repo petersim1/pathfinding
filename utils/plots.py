@@ -51,11 +51,8 @@ def plot_path(ax, path, **kwargs):
 
 
 def bar_chart_performance(
-        partition: List[object],
-        colormap: object,
-        items: List[str],
-        key: str,
-        **kwargs):
+    partition: List[object], colormap: object, items: List[str], key: str, **kwargs
+):
 
     fig, axes = plt.subplots(nrows=1, ncols=3, **kwargs)
 

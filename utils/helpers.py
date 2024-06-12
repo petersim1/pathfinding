@@ -1,7 +1,7 @@
 import random
 from queue import LifoQueue
 
-from .search import get_neighbors, manhattan_distance
+from .graph import Graph
 from .types import Grid_t, Position_t
 
 """
@@ -17,45 +17,11 @@ In all cases, 1 denotes valid unit, 0 denotes blocked unit.
 """
 
 
-def is_path_valid(start: Position_t, target: Position_t, matrix: Grid_t):
-    max_size = len(matrix) * len(matrix[0])
-
-    visited = set([start])
-    stack = LifoQueue(maxsize=max_size)
-    stack.put(start)
-    is_valid_path = False
-
-    while stack.qsize():
-        cur_node = stack.queue[-1]
-        if cur_node == target:
-            is_valid_path = True
-            break
-
-        is_available = False
-        neighbors = get_neighbors(cur_node, matrix)
-        for neighbor in neighbors:
-            if neighbor not in visited:
-                visited.add(neighbor)
-                stack.put(neighbor)
-                is_available = True
-                break
-        if not is_available:
-            stack.get()
-
-    return is_valid_path
-
-
-def generate_maze(rows, cols):
+def generate_maze(graph: Graph):
     """There's a bug in here, sometimes generates in invalid maze"""
     # Initialize the grid with walls (1) and spaces (0)
-    maze = [[0 for _ in range(cols)] for _ in range(rows)]
-
     # Define the directions for moving in the maze (right, down, left, up)
     directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]
-
-    def is_valid_move(r, c):
-        # Check if the move is within the maze boundaries
-        return 0 <= r < rows and 0 <= c < cols
 
     def carve_passages_from(cr, cc):
         # Randomly shuffle the directions to create a more random maze
@@ -63,38 +29,42 @@ def generate_maze(rows, cols):
 
         for dr, dc in directions:
             nr, nc = cr + dr, cc + dc
-            nr2, nc2 = cr + 2*dr, cc + 2*dc
+            nr2, nc2 = cr + 2 * dr, cc + 2 * dc
 
-            if is_valid_move(nr2, nc2) and maze[nr2][nc2] == 0:
+            if graph.is_in_grid((nr2, nc2)) and graph.is_blocked((nr2, nc2)):
                 # Carve through the blockages to create passages
-                maze[nr][nc] = 1
-                maze[nr2][nc2] = 1
+                graph.unblock_node((nr, nc))
+                graph.unblock_node((nr2, nc2))
                 carve_passages_from(nr2, nc2)
 
     # Ensure the start and end positions are within bounds
-    start_r, start_c = 0, 1 if cols > 1 else 0
-    end_r, end_c = rows - 1, cols - 2 if cols > 1 else cols - 1
+    start_r, start_c = 0, 1 if graph.cols > 1 else 0
+    end_r, end_c = graph.rows - 1, graph.cols - 2 if graph.cols > 1 else graph.cols - 1
 
     # Start carving from a central location
-    start_cr, start_cc = 1 if rows > 1 else 0, 1 if cols > 1 else 0
-    maze[start_cr][start_cc] = 1
+    start_cr, start_cc = 1 if graph.rows > 1 else 0, 1 if graph.cols > 1 else 0
+    graph.unblock_node((start_cr, start_cc))
     carve_passages_from(start_cr, start_cc)
 
     # Ensure the start (top-left) and end (bottom-right) are open
-    maze[start_r][start_c] = 1
-    maze[end_r][end_c] = 1
+    graph.unblock_node((start_r, start_c))
+    graph.unblock_node((end_r, end_c))
 
-    return (start_r, start_c), (end_r, end_c), maze
+    return (start_r, start_c), (end_r, end_c)
 
 
-def generate_grid(rows: int, cols: int, percent_blocked: float = 0.3):
-    def generate_viable_path(rows, cols):
-        start = (random.choice(range(rows)), random.choice(range(cols)))
+def generate_grid(graph: Graph, percent_blocked: float = 0.3):
+    """
+    Generates a random grid by random walking a path until a certain manhattan distance
+    is met. Then we fill blocks around it.
+    """
 
+    def generate_viable_path():
+        start = (random.choice(range(graph.rows)), random.choice(range(graph.cols)))
         # Worst case scenario, we start in the center, this is the
         # maximum distance we can be.
-        min_allowable_distance = int(rows / 2) + int(cols / 2)
-        max_size = rows * cols
+        min_allowable_distance = int(graph.rows / 2) + int(graph.cols / 2)
+        max_size = graph.rows * graph.cols
 
         cur_distance = 0
 
@@ -102,22 +72,24 @@ def generate_grid(rows: int, cols: int, percent_blocked: float = 0.3):
         stack.put(start)
         visited = set([start])
 
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
         while True:
             cur_node = stack.queue[-1]
-            cur_distance = manhattan_distance(start, cur_node)
-            is_available = False
-            random.shuffle(directions)
+            cur_distance = Graph.distance(start, cur_node)
 
-            for d in directions:
-                pos = (cur_node[0] + d[0], cur_node[1] + d[1])
-                is_valid = (0 <= pos[0] <= rows - 1) and (0 <= pos[1] <= cols - 1)
-                if is_valid:
-                    if pos not in visited:
-                        stack.put(pos)
-                        visited.add(pos)
-                        cur_distance = manhattan_distance(start, pos)
+            if cur_distance >= min_allowable_distance:
+                # allow for a chance of extending past min_allowable_distance
+                if random.random() < 0.75:
+                    break
+
+            is_available = False
+            neighbors = graph.get_neighbors(cur_node)
+            random.shuffle(neighbors)
+
+            for neighbor in neighbors:
+                if neighbor not in visited:
+                    if not graph.crosses_path(cur_node, neighbor, visited):
+                        stack.put(neighbor)
+                        visited.add(neighbor)
                         is_available = True
                         break
             if not is_available:
@@ -127,33 +99,36 @@ def generate_grid(rows: int, cols: int, percent_blocked: float = 0.3):
                     break
                 stack.get()
 
-            if cur_distance >= min_allowable_distance:
-                # allow for a chance of extending past min_allowable_distance
-                if random.random() < 0.75:
-                    break
-
         return stack.queue
 
-    if rows < 2:
-        raise ValueError("N is too small")
-    if cols < 2:
-        raise ValueError("M is too small")
+    if graph.rows < 2:
+        raise ValueError("Rows is too small")
+    if graph.cols < 2:
+        raise ValueError("Cols is too small")
     percent_blocked = max(0, min(1, percent_blocked))
 
-    grid = [[1 for _ in range(cols)] for _ in range(rows)]
-    path = generate_viable_path(rows, cols)
+    path = generate_viable_path()
 
-    for r in range(rows):
-        for c in range(cols):
+    for r in range(graph.rows):
+        for c in range(graph.cols):
             if (r, c) not in path:
-                if random.random() < percent_blocked:
-                    grid[r][c] = 0
+                does_bisect = False
+                for d in graph.get_all_neighbors((r, c)):
+                    # similar to checking if diagonal paths cross,
+                    # we can check if 2 blocked diagonal nodes would prevent
+                    # a path from passing through
+                    if graph.crosses_path((r, c), d, path):
+                        does_bisect = True
+                        break
+                if not does_bisect:
+                    if random.random() < percent_blocked:
+                        graph.block_node((r, c))
 
-    return path[0], path[-1], grid
+    return path[0], path[-1]
 
 
 def generate_random_grid(
-    rows: int, cols: int, percent_blocked: float = 0.3
+    graph: Graph, percent_blocked: float = 0.3
 ) -> tuple[Position_t, Position_t, Grid_t]:
     """
     Create an N x M grid with a starting and ending position.
@@ -173,73 +148,70 @@ def generate_random_grid(
     position, and the grid.
     """
 
-    if rows < 2:
-        raise ValueError("N is too small")
-    if cols < 2:
-        raise ValueError("M is too small")
+    if graph.rows < 2:
+        raise ValueError("Rows is too small")
+    if graph.cols < 2:
+        raise ValueError("Cols is too small")
     percent_blocked = max(0, min(1, percent_blocked))
 
-    available_positions = [(r, c) for c in range(cols) for r in range(rows)]
+    available_r = list(range(graph.rows))
+    available_c = list(range(graph.cols))
 
-    start = random.choice(available_positions)
-    available_positions.remove(start)
-    end = random.choice(
-        [
-            pos
-            for pos in available_positions
-            if abs(pos[0] - start[0]) + abs(pos[1] - start[1]) > 1
-        ]
-    )
-    available_positions.remove(end)
+    start_r = random.choice(available_r)
+    start_c = random.choice(available_c)
 
-    grid = [[1 for _ in range(cols)] for _ in range(rows)]
+    available_r.remove(start_r)
+    available_c.remove(start_c)
 
-    for r in range(rows):
-        for c in range(cols):
+    end_r = random.choice(available_r)
+    end_c = random.choice(available_c)
+
+    start = (start_r, start_c)
+    end = (end_r, end_c)
+
+    for r in range(graph.rows):
+        for c in range(graph.cols):
             pos = (r, c)
             if pos == start:
                 continue
             if pos == end:
                 continue
             if random.random() < percent_blocked:
-                grid[r][c] = 0
-                valid_path = is_path_valid(start, end, grid)
+                graph.block_node((r, c))
+                valid_path = graph.path_exists(start, end)
                 if not valid_path:
-                    grid[r][c] = 1  # unblock it if there isn't a valid path.
+                    graph.unblock_node((r, c))  # unblock if needed
 
-    return start, end, grid
+    return start, end
 
 
-def generate_fixed_grid(n: int, m: int, variant: int):
+def generate_fixed_grid(graph: Graph, variant: int):
 
-    if n < 4:
-        raise ValueError("N is too small for the fixed grid")
-    if m < 4:
-        raise ValueError("M is too small for the fixed grid")
+    if graph.rows < 4:
+        raise ValueError("Rows is too small")
+    if graph.cols < 4:
+        raise ValueError("Cols is too small")
 
     variant = max(0, min(variant, 2))
 
-    grid = [[1 for _ in range(m)] for _ in range(n)]
-
-    row = int(n / 2)
-    col_block = 2 * int(m / 3)
+    row = int(graph.rows / 2)
+    col_block = 2 * int(graph.cols / 3)
 
     start = (row, 0)
     end = (row, col_block + 1)
 
     if variant == 0:
-        for i in range(1, n - 1):
-            grid[i][col_block] = 0
+        for r in range(1, graph.rows - 1):
+            graph.block_node((r, col_block))
     elif variant == 1:
-        for i in range(2, n - 2):
-            grid[i][int(m / 2)] = 0
-        for i in range(2, int(m / 2)):
-            grid[2][i] = 0
-            grid[-3][i] = 0
-
+        for r in range(2, graph.rows - 2):
+            graph.block_node((r, int(graph.cols / 2)))
+        for c in range(2, int(graph.cols / 2)):
+            graph.block_node((2, c))
+            graph.block_node((-3, c))
     else:
-        for i in range(1, n - 1):
-            grid[i][int(col_block / 2)] = 0
-            grid[i][col_block] = 0
+        for r in range(1, graph.rows - 1):
+            graph.block_node((r, int(col_block / 2)))
+            graph.block_node((r, col_block))
 
-    return start, end, grid
+    return start, end
